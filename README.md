@@ -200,3 +200,87 @@ Cada hilo estaba creando su propia instancia de HostBlackListsValidator, lo que 
 
 ---
 
+## Parte III — (Avance) Sincronización y *Deadlocks* con *Highlander Simulator*
+
+1. Revisa la simulación: N inmortales; cada uno **ataca** a otro. El que ataca **resta M** al contrincante y **suma M/2** a su propia vida.  
+
+2. **Invariante**: con N y salud inicial `H`, la suma total debería permanecer constante (salvo durante un update). Calcula ese valor y úsalo para validar.  
+
+![Ejecucion de la emulacion](/assets/Programa_default_ejecucion_base.png)
+
+Al iniciar la salud total es H x N , por cada pelea uno pierde M puntos de salud y el otro gana M/2 , esto se mantiene a lo largo de la ejecucion o es lo que se nos muestra a nivel de como esta estructurado.
+
+3. Ejecuta la UI y prueba **“Pause & Check”**.  
+
+![Ejecucion Pause Check](/assets/Simulador_Puse_Check.png)
+
+- ¿Se cumple el invariante? 
+ A nivel de codigo el metodo 'pause()' pone la bandera de paused en true  , el UI lee de inmediato antes de que los inmortales terminen su iteracion actual pudiendo encontrarse a mitad de una pelea 
+No se cumple , debido a que algunos hilos siguen peleando , ademas que puede que un hilo haya restado vida pero no la haya sumado 
+y varios esten modificando simultaneamente.
+
+Para que el invariante se cumpla todos los hilos deben estar realmente detenidos antes de realizar la suma. 
+
+4. **Pausa correcta**: asegura que **todos** los hilos queden pausados **antes** de leer/imprimir la salud; implementa **Resume** (ya disponible).  
+
+
+
+5. Haz *click* repetido y valida consistencia. ¿Se mantiene el invariante?  
+
+6. **Regiones críticas**: identifica y sincroniza las secciones de pelea para evitar carreras; si usas múltiples *locks*, anida con **orden consistente**:
+   ```java
+   synchronized (lockA) {
+     synchronized (lockB) {
+       // ...
+     }
+   }
+   ```
+**Regiones Criticas**
+
+- Tenemos una region critica donde el hilo altera la salud:
+
+```java
+    other.health -= this.damage;
+    this.health += this.damage / 2;
+
+```
+- Aunque esta parte ya esta protegida por :
+
+```java
+synchronized (first) {
+      synchronized (second) {
+        if (this.health <= 0 || other.health <= 0) return;
+        other.health -= this.damage;
+        this.health += this.damage / 2;
+        scoreBoard.recordFight();
+      }
+    }
+```
+
+- Tenemos otra region critica que puede desenvocar en un deadlock en el metodo fightNative():
+
+```java
+    private void fightNaive(Immortal other) {
+    synchronized (this) {
+      synchronized (other) {
+        if (this.health <= 0 || other.health <= 0) return;
+        other.health -= this.damage;
+        this.health += this.damage / 2;
+        scoreBoard.recordFight();
+      }
+    }
+  }
+```
+Ya que A puede bloquear a B y B puede bloquear a A , ambos se quedan esperando al otro  
+
+7. Si la app se **detiene** (posible *deadlock*), usa **`jps`** y **`jstack`** para diagnosticar.  
+   
+8. Aplica una **estrategia** para corregir el *deadlock* (p. ej., **orden total** por nombre/id, o **`tryLock(timeout)`** con reintentos y *backoff*).  
+
+9.  Valida con **N=100, 1000 o 10000** inmortales. Si falla el invariante, revisa la pausa y las regiones críticas.  
+
+10.  **Remover inmortales muertos** sin bloquear la simulación: analiza si crea una **condición de carrera** con muchos hilos y corrige **sin sincronización global** (colección concurrente o enfoque *lock-free*).  
+
+11.  Implementa completamente **STOP** (apagado ordenado).
+
+---
