@@ -131,4 +131,72 @@ Reescribe el **buscador de listas negras** para que la búsqueda **se detenga ta
 
 ### Desarrollo :
 
-1. Teniamos un problema en HostBlackListValidator 
+1. HostBlackListValidator
+
+- Agregamos un contador que sea compartido asi como su metodo sincronizado para incrementarlo:
+
+```java
+    
+    private int occurrencesCount = 0;
+    
+    public synchronized int increaseOccurrences() {
+    occurrencesCount++;
+    if (occurrencesCount >= BLACK_LIST_ALARM_COUNT) {
+        stop = true;
+    }
+    return occurrencesCount;
+}
+```
+
+- Asignamos valores a las variables en el metodo de 'checkHost()' asi como la lista sincronizada, tambien le pasamos el validador al hilo :
+
+```java
+    stop = false;
+    occurrencesCount = 0;
+    List<Integer> blackListOcurrences = java.util.Collections.synchronizedList(new LinkedList<>());
+    SearchBlackListThread t = new SearchBlackListThread(start, end, ipaddress, blackListOcurrences, this);
+
+```
+2. SearchBlackListThread
+
+- Agregamos el validador y modificamos el constructor:
+
+```java
+    private HostBlackListsValidator validator;
+    public SearchBlackListThread(int start, int end, String ipaddress,
+            List<Integer> blackListOcurrences,
+            HostBlackListsValidator validator) {
+
+        this.start = start;
+        this.end = end;
+        this.ipaddress = ipaddress;
+        this.blackListOcurrences = blackListOcurrences;
+        this.validator = validator;
+    }
+```
+
+- Modificamos el metodod run 'run()':
+
+```java
+    @Override
+    public void run() {
+
+        HostBlacklistsDataSourceFacade skds =
+                HostBlacklistsDataSourceFacade.getInstance();
+
+        for (int i = start; i < end && !validator.Stop(); i++) {
+
+            if (skds.isInBlackListServer(i, ipaddress)) {
+
+                blackListOcurrences.add(i);
+
+                validator.increaseOccurrences();
+            }
+        }
+    }
+```
+
+Cada hilo estaba creando su propia instancia de HostBlackListsValidator, lo que impedia que compartieran el mismo contador y la misma bandera de parada, no existia coordinacion entre ellos y la busqueda no podia detenerse antes. Para que funcionara correctamente, eliminamos la creacion de un nuevo validator dentro del hilo, pasamos la misma instancia compartida desde checkHost, corregimos las variables y aseguramos que el contador y la bandera stop fueran compartidos y sincronizados, permitiendo así detener la búsqueda cuando se alcanza BLACK_LIST_ALARM_COUNT sin condiciones de carrera.
+
+---
+
